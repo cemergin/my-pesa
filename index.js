@@ -2,23 +2,19 @@ const dotenv = require("dotenv").config();
 const express = require("express");
 const path = require("path");
 const session = require("express-session");
-
-const cryptoRandomString = require("crypto-random-string");
+const shortid = require("shortid");
 
 const MessagingResponse = require("twilio").twiml.MessagingResponse;
 const twilioClient = require("twilio")(
   process.env.TWILIO_SID,
   process.env.TWILIO_AUTH
 );
+
 const bodyParser = require("body-parser");
 
-const mongoose = require("mongoose");
 const connectDb = require("./src/utils/connectDb");
-const accountSchema = require("./src/schema/account");
-const transactionSchema = require("./src/schema/code");
-const codeSchema = require("./src/schema/code");
-
-const session_secret = cryptoRandomString({ length: 10 });
+const handleDatabase = require("./src/utils/handleDatabase");
+const session_secret = shortid.generate();
 
 const app = express();
 app.use(express.static(path.join(__dirname, "client/build")));
@@ -32,7 +28,6 @@ app.use(
 );
 
 const connection = {};
-
 connectDb(connection);
 
 const commands = {
@@ -45,25 +40,55 @@ const commands = {
   HELP: "commands"
 };
 
-const handleCreateAccount = async (name, number, account) => {
-  if (account != null) {
-    return "Account already exists. Type 'Help' to see available commands";
-  } else {
-    if (name == null || name.length == 0) {
-      return "Name is invalid. Please try with valid name";
+const handleCreateAccount = async (customerNum, customerName) => {
+  try {
+    return handleDatabase.createAccount(customerNum, customerName);
+  } catch (error) {
+    console.log(error);
+    return "Failed to Create Account: " + error.message;
+  }
+};
+
+const handleCheckBalance = async customerNum => {
+  try {
+    const account = await handleDatabase.getAccount(customerNum);
+    if (account == null)
+      return "The number you are using is not connected to an account. To create an account, please text 'Create' followed by your full name.";
+    const name = account.name.split(" ")[0];
+    const balance = account.balance;
+    return `Hi ${name}! Your current balance is ${balance}$`;
+  } catch (error) {
+    console.log(error);
+    return "Failed to check balance: " + error.message;
+  }
+};
+
+const handleTransfer = async (sendingNum, receiverNum, amount) => {
+  try {
+    if (amount == null || isNaN(amount)) throw "Amount spesified is invalid";
+    const sendAccount = await handleDatabase.getAccount(sendingNum);
+    if (sendAccount == null)
+      return "There seems to be a problem reaching your account. Please try again later!";
+    const receiverAccount = await handleDatabase.getAccount(receiverNum);
+    if (receiverAccount == null)
+      return "There seems to be a problem reaching the receiver's account. The number you typed may not be a My Pesa Customer. Please try again later'!";
+    if (sendAccount.balance < amount) return "Insufficient Funds";
+    const transaction = await handleDatabase.transferFunds(
+      sendingNum,
+      receiverNum,
+      amount
+    );
+    if (transaction != null) {
+      const message = await twilioClient.messages.create({
+        body: `Transfer of ${amount} $ received from +${transaction.sender.phone}.`,
+        from: process.env.TWILIO_FROM,
+        to: `+${transaction.receiver.phone}`
+      });
     }
-    try {
-      const newAccount = await new accountSchema({
-        name: name,
-        phone: number,
-        balance: 0
-      }).save();
-      console.log({ newAccount });
-      return "Account Succesfully Created";
-    } catch (error) {
-      console.log(error.message);
-      return "Error Occured While Creating Account";
-    }
+    return `${amount}$ successfully sent to user with ${transaction.receiver.phone}`;
+  } catch (error) {
+    console.log(error);
+    return "Failed to transfer funds: " + error.message;
   }
 };
 
@@ -75,53 +100,42 @@ const handleDeposit = async input => {
   return commands.DEPOSIT;
 };
 
-const handleTransfer = async (account, body) => {
-  if (account == null || account.phone == null)
-    return "There seems to be a problem reaching your account. Please try again later!";
-  if (body.length != 3)
-    return "Not enough information to complete request. Type 'Transfer' followed by the number you would like to send money and the ammount you would like to send.";
+const handleCreateDepositCode = async amount => {
   try {
-    const from = account.phone;
-    const to = await accountSchema.findOne({ phone: body[1] });
-    const amount = parseInt(body[2], 10);
-    if (to == null) return "Account you spesified is not a My Pesa customer.";
-    if (amount == null || isNaN(amount))
-      return "Spesified amount is not a number.";
-    if (account.balance < amount) return "Balance Insufficient for transfer";
-    let decreaseFrom = await accountSchema.findOneAndUpdate(
-      { phone: from },
-      { balance: account.balance - amount }
+    // const admin = await handleDatabase.getAccount(process.env.TWILIO_FROM);
+    // if (admin == null) {
+    //   admin = await handleDatabase.createAdmin(process.env.TWILIO_FROM, 9999);
+    // }
+    const code = await handleDatabase.createCode(
+      "14127732070",
+      amount,
+      "deposit"
     );
-    let increaseTo = await accountSchema.findOneAndUpdate(
-      { phone: to.phone },
-      { balance: to.balance + amount }
-    );
-    const message = await twilioClient.messages.create({
-      body: `Transfer of ${amount} $ received from +${from}.`,
-      from: process.env.TWILIO_FROM,
-      to: `+${to.phone}`
-    });
-    return `${amount}$ successfully sent to user with ${to.phone}`;
+    return code;
   } catch (error) {
-    console.log(error.message);
-    return "Error Occured While Completing Transfer";
+    throw "Error while creating deposit code: " + error.message;
   }
 };
 
-const handleCheckBalance = async account => {
+// const handleCreateWithdrawCode = async (customerNum, amount) => {
+//   try {
+//     const account = await handleDatabase.getAccount(customerNum);
+//     if (account == null)
+//       return "The number you are using is not connected to an account. To create an account, please text 'Create' followed by your full name.";
+//     const code = await handleDatabase.createCode(
+//       account.phone,
+//       amount,
+//       "withdraw"
+//     );
+//     return code.code;
+//   } catch (error) {
+//     console.log(error.message);
+//   }
+// };
+
+const handleHelp = async customerNum => {
+  const account = handleDatabase.getAccount(customerNum);
   if (account == null)
-    return "The number you are using is not connected to an account. To create an account, please text 'Create' followed by your full name.";
-  const name = account.name.split(" ")[0];
-  const balance = account.balance;
-  return `Hi ${name}! Your current balance is ${balance}$`;
-};
-
-const handleTransactions = async body => {
-  return commands.TRANSACTIONS;
-};
-
-const handleHelp = async (body, accountAvailable) => {
-  if (!accountAvailable)
     return "The number you are using is not connected to an account. To create an account, please text 'Create' followed by your full name.";
   else {
     let comms = [];
@@ -130,14 +144,25 @@ const handleHelp = async (body, accountAvailable) => {
   }
 };
 
+app.post("/api/createDeposit", async (req, res) => {
+  try {
+    const amount = parseInt(req.body.amount, 10);
+    const code = await handleCreateDepositCode(amount);
+    if (code != null) res.status(200).send(code);
+    else {
+      res.status(400).send("Error while creating Deposit Code");
+    }
+  } catch (error) {
+    console.log(error.message);
+    res.status(500).send("Error while creating Deposit Code");
+  }
+});
+
 app.post("/sms", async (req, res) => {
   const smsCount = req.session.counter || 0;
 
   const from = req.body.From.replace("+", "");
   const body = req.body.Body.toLowerCase().split(" ");
-
-  console.log(from);
-  console.log(body);
 
   const twiml = new MessagingResponse();
   let message = "";

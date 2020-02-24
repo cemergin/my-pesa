@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
-const shortid = require("shortid");
-const { String, Number, ObjectId } = mongoose.Schema.Types;
+const { String, Number } = mongoose.Schema.Types;
 
 const AccountSchema = new mongoose.Schema(
   {
@@ -15,6 +14,12 @@ const AccountSchema = new mongoose.Schema(
     },
     balance: {
       type: Number,
+      required: true
+    },
+    type: {
+      type: String,
+      enum: ["customer", "admin"],
+      default: "customer",
       required: true
     }
   },

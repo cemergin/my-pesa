@@ -1,11 +1,14 @@
 const mongoose = require("mongoose");
+const shortid = require("shortid");
 const { String, Number, Boolean, ObjectId } = mongoose.Schema.Types;
 
 const CodeSchema = new mongoose.Schema(
   {
     code: {
       type: String,
-      required: true
+      required: true,
+      unique: true,
+      default: shortid.generate()
     },
     codeType: {
       type: String,
@@ -21,7 +24,12 @@ const CodeSchema = new mongoose.Schema(
       default: false,
       required: true
     },
-    account: {
+    creatorAccount: {
+      type: ObjectId,
+      ref: "Account",
+      required: true
+    },
+    consumerAccount: {
       type: ObjectId,
       ref: "Account"
     }

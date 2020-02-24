@@ -18,11 +18,10 @@ const TransactionSchema = new mongoose.Schema(
       type: Number,
       required: true
     },
-    sku: {
+    type: {
       type: String,
-      required: true,
-      unique: true,
-      default: shortid.generate()
+      enum: ["withdraw", "deposit", "transfer"],
+      required: true
     }
   },
   {

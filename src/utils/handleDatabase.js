@@ -1,8 +1,8 @@
 // MongoDB Dependencies
 const mongoose = require("mongoose");
 const accountSchema = require("../schema/account");
-const transactionSchema = require("../schema//code");
-const codeSchema = require("../schema//code");
+const transactionSchema = require("../schema/transaction");
+const codeSchema = require("../schema/code");
 const shortid = require("shortid");
 const connectDb = require("./connectDb");
 
@@ -91,8 +91,8 @@ const handleDatabase = {
       const sender = await handleDatabase.decreaseFunds(sendingNum, amount);
       const receiver = await handleDatabase.increaseFunds(receiverNum, amount);
       const log = await handleDatabase.logTransaction(
-        sender,
-        receiver,
+        sender._id,
+        receiver._id,
         amount,
         "transfer"
       );
@@ -106,15 +106,15 @@ const handleDatabase = {
     try {
       if (sender == null || receiver == null || amount == null)
         throw "Incorrect Input";
-      const newAccount = await new transactionSchema({
-        sender: sender._id,
-        receiver: receiver._id,
+      const newTransaction = await new transactionSchema({
+        sender: sender,
+        receiver: receiver,
         amount: amount,
         type: type
       }).save();
     } catch (error) {
       console.log(error.message);
-      throw new Error("Failed to Log Transaction" + error.message);
+      throw new Error("Failed to Log Transaction: " + error.message);
     }
   },
   createCode: async (phoneNum, amount, type) => {
@@ -145,9 +145,31 @@ const handleDatabase = {
       throw new Error("Failed to retreive transfer code:" + error.message);
     }
   },
-  consumeCode: async (phoneNum, code) => {
-    // TO-DO
-    console.log(code);
+  consumeCode: async (phoneNum, code, type) => {
+    try {
+      code = await handleDatabase.getCode(code);
+      if (code == null || code.codeType != type || code.completed == true)
+        throw new Error("Transaction code is invalid");
+      const account =
+        type == "deposit"
+          ? await handleDatabase.increaseFunds(phoneNum, code.amount)
+          : await handleDatabase.decreaseFunds(phoneNum, code.amount);
+      const newCode = await codeSchema.findOneAndUpdate(
+        { code: code.code },
+        { completed: true, consumerAccount: account._id },
+        { new: true }
+      );
+      const log = await handleDatabase.logTransaction(
+        newCode.creatorAccount,
+        newCode.consumerAccount,
+        newCode.amount,
+        newCode.codeType
+      );
+      return account;
+    } catch (error) {
+      console.log(error);
+      throw new Error("Failed to use code: " + error.message);
+    }
   }
 };
 module.exports = handleDatabase;

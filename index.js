@@ -102,9 +102,21 @@ const handleTransfer = async (sendingNum, receiverNum, amount) => {
   }
 };
 
-const handleWithdraw = async (phoneNum, withdrawCode) => {
-  // TO-DO
-  return commands.WITHDRAW;
+const handleWithdraw = async withdrawCode => {
+  try {
+    const code = await handleDatabase.getCode(withdrawCode);
+    if (code == null || code.type == "deposit" || code.completed == true)
+      throw new Error("Invalid withdraw code");
+    const newCode = await handleDatabase.consumeCode(
+      process.env.TWILIO_FROM,
+      withdrawCode,
+      "withdraw"
+    );
+    return true;
+  } catch (error) {
+    console.log(error.message);
+    return false;
+  }
 };
 
 const handleDeposit = async (phoneNum, depositCode) => {
@@ -112,9 +124,12 @@ const handleDeposit = async (phoneNum, depositCode) => {
     const code = await handleDatabase.getCode(depositCode);
     if (code == null || code.type == "withdraw" || code.completed == true)
       return "The deposit code you shared is invalid.";
-    const something = await handleDatabase.consumeCode(phoneNum, depositCode);
+    const something = await handleDatabase.consumeCode(
+      phoneNum,
+      depositCode,
+      "deposit"
+    );
     const account = await handleDatabase.getAccount(phoneNum);
-    // TO-DO: Beautify Output
     return `Deposit code used successfully. New balance is ${account.balance}`;
   } catch (error) {
     console.log(error);
@@ -148,13 +163,13 @@ const handleCreateWithdrawCode = async (customerNum, amount) => {
       return "The number you are using is not connected to an account. To create an account, please text 'Create' followed by your full name.";
     if (account.balance < amount)
       return "Balance infsufficient to create withdraw code";
-    const newUser = await handleDatabase.DecreaseFunds(account.phone, amount);
+    const newUser = await handleDatabase.decreaseFunds(account.phone, amount);
     const code = await handleDatabase.createCode(
       account.phone,
       amount,
       "withdraw"
     );
-    return `Withdraw Code Generated for the amount of ${amount}$: ${code}`;
+    return `Withdraw Code Generated for the amount of ${amount}$. ${code}`;
   } catch (error) {
     console.log(error.message);
     return "Unable to create withdraw code: " + error.message;
@@ -187,6 +202,19 @@ app.post("/api/createDeposit", async (req, res) => {
   }
 });
 
+app.post("/api/handleWithdraw", async (req, res) => {
+  try {
+    const code = await handleWithdraw(req.body.withdrawCode);
+    if (code == true) res.status(200).send(code);
+    else {
+      res.status(400).send("Error while using Withdraw Code");
+    }
+  } catch (error) {
+    console.log(error.message);
+    res.status(500).send("Error while creating Withdraw Code");
+  }
+});
+
 app.post("/sms", async (req, res) => {
   const smsCount = req.session.counter || 0;
 
@@ -216,7 +244,7 @@ app.post("/sms", async (req, res) => {
           message = await handleCreateAccount(body.slice(1).join(" "), from);
           break;
         case commands.WITHDRAW:
-          message = await handleWithdraw(body);
+          message = await handleCreateWithdrawCode(from, body[1]);
           break;
         case commands.DEPOSIT:
           message = await handleDeposit(from, body[1]);

@@ -16,29 +16,31 @@ const handleDatabase = {
       return await accountSchema.findOne({ phone: customerNum });
     } catch (error) {
       console.log(error);
-      throw "Failed to retreive account information:" + error.message;
+      throw new Error(
+        "Failed to retreive account information: " + error.message
+      );
     }
   },
   createAccount: async (customerNum, customerName) => {
     try {
       const customerAccount = await handleDatabase.getAccount(customerNum);
-      if (customerAccount != null) throw "Account Already Exists";
-      if (customerName == null) throw "Name is null";
+      if (customerAccount != null) throw new Error("Account Already Exists");
+      if (customerName == null) throw new Error("Name is null");
       const newAccount = await new accountSchema({
-        name: name,
-        phone: number,
+        name: customerName,
+        phone: customerNum,
         balance: 0
       }).save();
       return newAccount;
     } catch (error) {
       console.log(error);
-      throw "Failed to create account:" + error.message;
+      throw new Error("Failed to create account: " + error.message);
     }
   },
   createAdmin: async (AdminNum, balance) => {
     try {
       const AdminAccount = await handleDatabase.getAccount(AdminNum);
-      if (AdminAccount != null) throw "Admin Account Already Exists";
+      if (AdminAccount != null) throw new Error("Admin Account Already Exists");
       const newAccount = await new accountSchema({
         name: "ADMIN",
         phone: AdminNum,
@@ -48,14 +50,14 @@ const handleDatabase = {
       return newAccount;
     } catch (error) {
       console.log(error);
-      throw "Failed to create admin account:" + error.message;
+      throw new Error("Failed to create admin account:" + error.message);
     }
   },
   increaseFunds: async (customerNum, amount) => {
     try {
       const account = await handleDatabase.getAccount(customerNum);
-      if (account == null) throw "Sending Account Does Not Exist";
-      if (amount == null || isNaN(amount)) throw "Invalid Amount";
+      if (account == null) throw new Error("Sending Account Does Not Exist");
+      if (amount == null || isNaN(amount)) throw new Error("Invalid Amount");
       const newAccount = await accountSchema.findOneAndUpdate(
         { phone: account.phone },
         { balance: account.balance + amount },
@@ -64,7 +66,7 @@ const handleDatabase = {
       return newAccount;
     } catch (error) {
       console.log(error);
-      throw "Failed to increase funds:" + error.message;
+      throw new Error("Failed to increase funds:" + error.message);
     }
   },
   decreaseFunds: async (customerNum, amount) => {
@@ -81,7 +83,7 @@ const handleDatabase = {
       return newAccount;
     } catch (error) {
       console.log(error);
-      throw "Failed to decrease funds:" + error.message;
+      throw new Error("Failed to decrease funds:" + error.message);
     }
   },
   transferFunds: async (sendingNum, receiverNum, amount) => {
@@ -97,7 +99,7 @@ const handleDatabase = {
       return { sender, receiver };
     } catch (error) {
       console.log(error.message);
-      throw "Failed to Complete Transfer" + error.message;
+      throw new Error("Failed to Complete Transfer" + error.message);
     }
   },
   logTransaction: async (sender, receiver, amount, type) => {
@@ -112,7 +114,7 @@ const handleDatabase = {
       }).save();
     } catch (error) {
       console.log(error.message);
-      throw "Failed to Log Transaction" + error.message;
+      throw new Error("Failed to Log Transaction" + error.message);
     }
   },
   createCode: async (phoneNum, amount, type) => {
@@ -135,8 +137,17 @@ const handleDatabase = {
       throw new Error("Failed to create code" + error.message);
     }
   },
+  getCode: async code => {
+    try {
+      return await codeSchema.findOne({ code: code });
+    } catch (error) {
+      console.log(error);
+      throw new Error("Failed to retreive transfer code:" + error.message);
+    }
+  },
   consumeCode: async (phoneNum, code) => {
-    console.log(consumeCode);
+    // TO-DO
+    console.log(code);
   }
 };
 module.exports = handleDatabase;
